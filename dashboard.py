@@ -4,17 +4,34 @@ MovieLens Professional Analytics Dashboard
 Comprehensive analysis of viewer behavior, content performance, and recommendation systems
 """
 import os
+import sys
 import pandas as pd
 import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 import joblib
+import glob
 
 # -----------------------
 # Configuration
 # -----------------------
-DATA_DIR = os.environ.get("MOVIELENS_DATA_DIR", "./data")
+# Try multiple possible data directory locations
+POSSIBLE_DATA_DIRS = [
+    "./data",
+    "data",
+    os.path.join(os.path.dirname(__file__), "data"),
+    os.path.join(os.getcwd(), "data")
+]
+
+DATA_DIR = None
+for directory in POSSIBLE_DATA_DIRS:
+    if os.path.exists(directory) and os.path.isdir(directory):
+        DATA_DIR = directory
+        break
+
+if DATA_DIR is None:
+    DATA_DIR = "./data"  # Fallback
 
 REQUIRED_FILES = {
     "ratings": "ratings_df.parquet",
@@ -49,7 +66,7 @@ st.markdown("""
     .main {
         background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
     }
-
+    
     /* Headers */
     h1 {
         color: #e94560;
@@ -58,7 +75,7 @@ st.markdown("""
         letter-spacing: -0.5px;
         padding: 20px 0;
     }
-
+    
     h2, h3 {
         color: #eaeaea;
         font-family: 'Segoe UI', sans-serif;
@@ -67,43 +84,43 @@ st.markdown("""
         border-bottom: 2px solid #e94560;
         padding-bottom: 10px;
     }
-
+    
     /* Sidebar */
     .css-1d391kg, [data-testid="stSidebar"] {
         background: linear-gradient(180deg, #0f3460 0%, #1a1a2e 100%);
     }
-
+    
     /* Metric containers */
     [data-testid="stMetricValue"] {
         font-size: 28px;
         color: #e94560;
         font-weight: 600;
     }
-
+    
     [data-testid="stMetricLabel"] {
         color: #c5c5c5;
         font-size: 13px;
         text-transform: uppercase;
         letter-spacing: 0.5px;
     }
-
+    
     /* Hide delta */
     div[data-testid="stMetricDelta"] {
         display: none;
     }
-
+    
     /* Dataframe styling */
     .dataframe {
         background-color: #16213e !important;
         color: #eaeaea !important;
     }
-
+    
     .dataframe th {
         background-color: #0f3460 !important;
         color: #e94560 !important;
         font-weight: 600;
     }
-
+    
     /* Buttons */
     .stButton>button {
         background: linear-gradient(90deg, #e94560 0%, #c03555 100%);
@@ -117,17 +134,17 @@ st.markdown("""
         letter-spacing: 0.5px;
         font-size: 12px;
     }
-
+    
     .stButton>button:hover {
         transform: translateY(-2px);
         box-shadow: 0 6px 20px rgba(233, 69, 96, 0.4);
     }
-
+    
     /* Plotly charts */
     .js-plotly-plot {
         border-radius: 8px;
     }
-
+    
     /* Section dividers */
     hr {
         border: none;
@@ -141,12 +158,8 @@ st.markdown("""
 # -----------------------
 # Helper Functions
 # -----------------------
-import glob
-
 def load_chunked_parquet(base_filename, data_dir):
     """Load a parquet file that may be split into chunks"""
-    import glob
-    
     # Remove .parquet extension to get base name
     base_name = base_filename.replace('.parquet', '')
     
@@ -158,13 +171,24 @@ def load_chunked_parquet(base_filename, data_dir):
         # Load and combine all chunks
         chunks = []
         for f in chunk_files:
-            chunks.append(pd.read_parquet(f))
-        return pd.concat(chunks, ignore_index=True)
+            try:
+                chunks.append(pd.read_parquet(f))
+            except Exception as e:
+                st.warning(f"Error loading chunk {f}: {e}")
+                continue
+        
+        if chunks:
+            return pd.concat(chunks, ignore_index=True)
+        return None
     
     # If no chunks, try loading the regular file
     full_path = os.path.join(data_dir, base_filename)
     if os.path.exists(full_path):
-        return pd.read_parquet(full_path)
+        try:
+            return pd.read_parquet(full_path)
+        except Exception as e:
+            st.error(f"Error loading {base_filename}: {e}")
+            return None
     
     # File doesn't exist in any form
     return None
@@ -177,13 +201,7 @@ def load_parquet_file(filename):
     
     # Try loading (handles both chunked and non-chunked)
     df = load_chunked_parquet(filename, DATA_DIR)
-    
-    if df is not None:
-        return df
-    
-    # If still None, file truly doesn't exist
-    return None
-
+    return df
 
 def get_chart_layout(title, height=500, theme="plotly_dark"):
     """Returns consistent chart layout configuration"""
@@ -197,15 +215,17 @@ def get_chart_layout(title, height=500, theme="plotly_dark"):
         margin=dict(l=50, r=50, t=80, b=50)
     )
 
-
-
 @st.cache_resource
 def load_content_model():
     """Load the content-based model"""
     try:
-        model = joblib.load(os.path.join(DATA_DIR, "content_based_model.pkl"))
-        return model
-    except:
+        model_path = os.path.join(DATA_DIR, "content_based_model.pkl")
+        if os.path.exists(model_path):
+            model = joblib.load(model_path)
+            return model
+        return None
+    except Exception as e:
+        st.error(f"Error loading model: {e}")
         return None
 
 # -----------------------
@@ -228,10 +248,6 @@ page = st.sidebar.radio(
     index=0
 )
 
-data_dir_input = st.sidebar.text_input("Data Directory", DATA_DIR, help="Path to parquet files")
-if data_dir_input:
-    DATA_DIR = data_dir_input
-
 st.sidebar.markdown("### Time Range Filters")
 col1, col2 = st.sidebar.columns(2)
 with col1:
@@ -250,37 +266,59 @@ chart_theme = st.sidebar.selectbox("Chart Theme", ["plotly_dark", "plotly", "sea
 # Data Loading
 # -----------------------
 with st.spinner("Loading data..."):
+    # Debug info
+    st.sidebar.markdown("---")
+    st.sidebar.markdown("### Debug Info")
+    st.sidebar.text(f"Data Directory: {DATA_DIR}")
+    st.sidebar.text(f"Directory exists: {os.path.exists(DATA_DIR)}")
+    
+    if os.path.exists(DATA_DIR):
+        files_in_dir = os.listdir(DATA_DIR)
+        st.sidebar.text(f"Files found: {len(files_in_dir)}")
+    
     data = {}
     missing_files = []
-
+    loaded_files = []
+    
     for key, fname in REQUIRED_FILES.items():
-        df = load_parquet_file(os.path.join(DATA_DIR, fname))
+        df = load_parquet_file(fname)
         if df is None:
             missing_files.append(fname)
         else:
             data[key] = df
-
+            loaded_files.append(f"{fname} ({len(df)} rows)")
+    
+    if loaded_files:
+        with st.sidebar.expander("Loaded Files"):
+            for f in loaded_files:
+                st.sidebar.text(f)
+    
     if missing_files:
         st.error(f"Missing files: {', '.join(missing_files)}")
-        st.info("Please ensure all required parquet files are in the data directory.")
+        st.info(f"Looking in: {os.path.abspath(DATA_DIR)}")
+        
+        if os.path.exists(DATA_DIR):
+            st.write("Files in data directory:")
+            st.write(os.listdir(DATA_DIR)[:20])
+        
         st.stop()
 
 # Unpack data
-ratings_df = data["ratings"]
-movies = data["movies"]
-tags = data["tags"]
-hidden_gems = data["hidden_gems"]
-centroid_df = data["centroid"]
-user_clusters = data["user_clusters"]
-release_stats_table = data["release_stats"]
-genre_stats_pd = data["genre_stats"]
-tag_rating_pd = data["tag_rating"]
-tag_trends_pd = data["tag_trends"]
-activity_trend_pd = data["activity_trend"]
-weighted_popularity = data["weighted_popularity"]
-movie_features = data["movie_features"]
-content_model_metrics = data["content_model_metrics"]
-feature_importance = data["feature_importance"]
+ratings_df = data.get("ratings")
+movies = data.get("movies")
+tags = data.get("tags")
+hidden_gems = data.get("hidden_gems")
+centroid_df = data.get("centroid")
+user_clusters = data.get("user_clusters")
+release_stats_table = data.get("release_stats")
+genre_stats_pd = data.get("genre_stats")
+tag_rating_pd = data.get("tag_rating")
+tag_trends_pd = data.get("tag_trends")
+activity_trend_pd = data.get("activity_trend")
+weighted_popularity = data.get("weighted_popularity")
+movie_features = data.get("movie_features")
+content_model_metrics = data.get("content_model_metrics")
+feature_importance = data.get("feature_importance")
 
 # Load ML model
 content_model = load_content_model()
@@ -295,10 +333,10 @@ if page == "Analytics Overview":
     # -----------------------
     st.markdown("### Key Performance Indicators")
 
-    avg_rating = ratings_df["rating"].mean() if "rating" in ratings_df.columns else 0
-    total_users = ratings_df["userId"].nunique() if "userId" in ratings_df.columns else 0
-    total_movies = len(movies)
-    total_ratings = len(ratings_df)
+    avg_rating = ratings_df["rating"].mean() if ratings_df is not None and "rating" in ratings_df.columns else 0
+    total_users = ratings_df["userId"].nunique() if ratings_df is not None and "userId" in ratings_df.columns else 0
+    total_movies = len(movies) if movies is not None else 0
+    total_ratings = len(ratings_df) if ratings_df is not None else 0
 
     try:
         top_genre = genre_stats_pd.sort_values("avg_rating", ascending=False).iloc[0]["genre_list"]
@@ -376,16 +414,16 @@ if page == "Analytics Overview":
 
     fig = go.Figure()
     fig.add_trace(go.Bar(
-        x=rp["release_year"],
-        y=rp["num_ratings"],
-        name="Rating Volume",
+        x=rp["release_year"], 
+        y=rp["num_ratings"], 
+        name="Rating Volume", 
         marker_color="#4ecdc4"
     ))
     fig.add_trace(go.Scatter(
-        x=rp["release_year"],
-        y=rp["avg_rating"],
-        mode="lines+markers",
-        name="Average Rating",
+        x=rp["release_year"], 
+        y=rp["avg_rating"], 
+        mode="lines+markers", 
+        name="Average Rating", 
         marker=dict(color="#e94560", size=8),
         yaxis="y2"
     ))
@@ -411,9 +449,9 @@ if page == "Analytics Overview":
     with col1:
         st.markdown("### Genre Quality Ratings")
         fig = px.bar(
-            genre_df.sort_values("avg_rating"),
-            x="avg_rating",
-            y="genre_list",
+            genre_df.sort_values("avg_rating"), 
+            x="avg_rating", 
+            y="genre_list", 
             orientation="h",
             color="avg_rating",
             color_continuous_scale="RdYlGn"
@@ -424,9 +462,9 @@ if page == "Analytics Overview":
     with col2:
         st.markdown("### Genre Popularity")
         fig = px.bar(
-            genre_df.sort_values("num_ratings", ascending=False),
-            x="num_ratings",
-            y="genre_list",
+            genre_df.sort_values("num_ratings", ascending=False), 
+            x="num_ratings", 
+            y="genre_list", 
             orientation="h",
             color="num_ratings",
             color_continuous_scale="Blues"
@@ -436,9 +474,9 @@ if page == "Analytics Overview":
 
     st.markdown("### Tag Sentiment Analysis")
     fig = px.bar(
-        tag_rating_pd,
-        x="tag",
-        y="avg_rating",
+        tag_rating_pd, 
+        x="tag", 
+        y="avg_rating", 
         color="num_ratings",
         color_continuous_scale="Viridis"
     )
@@ -452,9 +490,9 @@ if page == "Analytics Overview":
     for i, grp in enumerate(groups, 1):
         grp_df = tag_trends_pd[tag_trends_pd["tag"].isin(grp)]
         fig = px.line(
-            grp_df,
-            x="year",
-            y="count",
+            grp_df, 
+            x="year", 
+            y="count", 
             color="tag",
             markers=True
         )
@@ -497,14 +535,14 @@ if page == "Analytics Overview":
 
     if selected_clusters:
         comp = cent[selected_clusters].copy().reset_index()
-
+        
         comp_long = comp.melt(
             id_vars="Genre",
             value_vars=selected_clusters,
             var_name="Cluster",
             value_name="AvgRating"
         )
-
+        
         fig = px.bar(
             comp_long,
             x="Cluster",
@@ -513,15 +551,15 @@ if page == "Analytics Overview":
             barmode="group",
             hover_data={"Cluster": True, "Genre": True, "AvgRating": ":.2f"}
         )
-
+        
         fig.update_layout(**get_chart_layout("Genre Preferences by User Cluster", theme=chart_theme))
         st.plotly_chart(fig, use_container_width=True)
-
+        
         if show_raw_data:
             st.markdown("#### Detailed Cluster Data")
             ordered = comp_long.sort_values(["Cluster", "Genre"])[["Cluster", "Genre", "AvgRating"]]
             st.dataframe(ordered, use_container_width=True)
-
+            
             # Download option
             csv = ordered.to_csv(index=False).encode('utf-8')
             st.download_button(
@@ -550,27 +588,27 @@ elif page == "Recommendation Models":
     # -----------------------
     st.markdown("## Movie Recommendation System")
     st.markdown("*Compare different recommendation approaches*")
-
+    
     # Model selector
     model_type = st.radio(
         "Select Recommendation Model",
         ["Weighted Popularity (Non-Personalized)", "Content-Based Filtering (ML)"],
         horizontal=True
     )
-
+    
     st.markdown("---")
-
+    
     if model_type == "Weighted Popularity (Non-Personalized)":
         st.markdown("### Weighted Popularity Model")
         st.markdown("*IMDb-style weighted score based on ratings volume and average*")
-
+        
         # Show top N movies
         n_recommendations = st.slider("Number of recommendations", 5, 50, 20)
-
+        
         top_movies = weighted_popularity.head(n_recommendations)
-
+        
         col1, col2 = st.columns([2, 1])
-
+        
         with col1:
             st.markdown("#### Top Recommended Movies")
             display_df = top_movies[["title", "score", "R", "v"]].copy()
@@ -578,7 +616,7 @@ elif page == "Recommendation Models":
             display_df["Weighted Score"] = display_df["Weighted Score"].round(3)
             display_df["Avg Rating"] = display_df["Avg Rating"].round(2)
             st.dataframe(display_df, use_container_width=True, height=600)
-
+        
         with col2:
             st.markdown("#### Model Formula")
             st.latex(r"""
@@ -591,31 +629,31 @@ elif page == "Recommendation Models":
             - **m** = minimum votes threshold
             - **C** = global mean rating
             """)
-
+            
             st.markdown("#### Model Stats")
             st.metric("Total Movies Ranked", f"{len(weighted_popularity):,}")
             st.metric("Avg Score", f"{weighted_popularity['score'].mean():.3f}")
-
+            
     else:  # Content-Based Filtering
         st.markdown("### Content-Based Filtering Model")
         st.markdown("*ML-powered recommendations based on movie features (genres, tags, metadata)*")
-
+        
         if content_model is None:
             st.error("Content-based model not found. Please ensure content_based_model.pkl is in the data directory.")
         else:
             col1, col2 = st.columns(2)
-
+            
             with col1:
                 st.markdown("#### Model Performance")
                 metrics_display = content_model_metrics.set_index("metric")
-
+                
                 for metric, value in metrics_display.iterrows():
                     st.metric(metric, f"{value['value']:.4f}")
-
+            
             with col2:
                 st.markdown("#### Feature Importance")
                 top_features = feature_importance.head(10)
-
+                
                 fig = px.bar(
                     top_features,
                     x="importance",
@@ -626,40 +664,40 @@ elif page == "Recommendation Models":
                 )
                 fig.update_layout(**get_chart_layout("Top 10 Features", height=400, theme=chart_theme))
                 st.plotly_chart(fig, use_container_width=True)
-
+            
             st.markdown("---")
-
+            
             # Movie recommendation interface
             st.markdown("#### Get Recommendations for a Movie")
-
+            
             # Movie selector
             movie_titles = movies["title"].tolist()
             selected_movie_title = st.selectbox("Select a movie", movie_titles)
-
+            
             if st.button("Get Similar Movies"):
                 # Find selected movie ID
                 selected_movie_id = movies[movies["title"] == selected_movie_title]["movieId"].values[0]
-
+                
                 # Get movie features
                 if selected_movie_id in movie_features.index:
                     selected_features = movie_features.loc[selected_movie_id].values.reshape(1, -1)
-
+                    
                     # Predict rating
                     predicted_rating = content_model.predict(selected_features)[0]
-
+                    
                     st.success(f"Predicted Rating for this movie: **{predicted_rating:.2f}** / 5.0")
-
+                    
                     # Find similar movies (simple cosine similarity on features)
                     from sklearn.metrics.pairwise import cosine_similarity
-
+                    
                     similarities = cosine_similarity(selected_features, movie_features.values)[0]
                     similar_indices = similarities.argsort()[-11:-1][::-1]  # Top 10 similar (excluding self)
-
+                    
                     similar_movies = movie_features.iloc[similar_indices].index.tolist()
                     similar_titles = movies[movies["movieId"].isin(similar_movies)][["movieId", "title"]]
                     similar_titles["similarity"] = [similarities[idx] for idx in similar_indices]
                     similar_titles = similar_titles.sort_values("similarity", ascending=False)
-
+                    
                     st.markdown("#### Top 10 Similar Movies")
                     display_similar = similar_titles[["title", "similarity"]].copy()
                     display_similar.columns = ["Movie Title", "Similarity Score"]
@@ -667,4 +705,3 @@ elif page == "Recommendation Models":
                     st.dataframe(display_similar, use_container_width=True)
                 else:
                     st.error("Movie features not found for this movie.")
-
