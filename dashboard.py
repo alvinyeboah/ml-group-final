@@ -386,44 +386,53 @@ st.markdown("---")
 # -----------------------
 # Sidebar
 # -----------------------
-st.sidebar.markdown("## Dashboard Controls")
+# Logo/Title
+st.sidebar.markdown("""
+<div style='text-align: center; padding: 1rem 0 1.5rem 0;'>
+    <h1 style='font-size: 1.8rem; margin: 0; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
+               -webkit-background-clip: text; -webkit-text-fill-color: transparent; font-weight: 700;'>
+        🎬 MovieLens
+    </h1>
+    <p style='color: #94a3b8; font-size: 0.85rem; margin: 0.5rem 0 0 0;'>Analytics Dashboard</p>
+</div>
+""", unsafe_allow_html=True)
+
 st.sidebar.markdown("---")
 
-# Navigation
+# Navigation Section
+st.sidebar.markdown("### 📊 Navigation")
 page = st.sidebar.radio(
-    "Navigate",
+    "",
     ["Analytics Overview", "Recommendation Models"],
-    index=0
+    index=0,
+    label_visibility="collapsed"
 )
 
-st.sidebar.markdown("### Time Range Filters")
-col1, col2 = st.sidebar.columns(2)
-with col1:
-    min_year = st.number_input("From", value=1990, step=1, min_value=1900, max_value=2023)
-with col2:
-    max_year = st.number_input("To", value=2023, step=1, min_value=1900, max_value=2023)
+st.sidebar.markdown("---")
 
-if min_year > max_year:
-    st.sidebar.error("Minimum year must be less than or equal to maximum year")
+# Filters Section
+st.sidebar.markdown("### ⚙️ Filters")
 
-st.sidebar.markdown("### Display Settings")
-show_raw_data = st.sidebar.checkbox("Show Data Tables", False)
-chart_theme = st.sidebar.selectbox("Chart Theme", ["plotly_dark", "plotly", "seaborn"], index=0)
+# Time Range
+with st.sidebar.expander("📅 Time Range", expanded=False):
+    col1, col2 = st.columns(2)
+    with col1:
+        min_year = st.number_input("From", value=1990, step=1, min_value=1900, max_value=2023, key="min_year")
+    with col2:
+        max_year = st.number_input("To", value=2023, step=1, min_value=1900, max_value=2023, key="max_year")
+    
+    if min_year > max_year:
+        st.error("⚠️ Min year must be ≤ max year")
+
+# Display Settings
+with st.sidebar.expander("🎨 Display", expanded=False):
+    show_raw_data = st.checkbox("Show Data Tables", False)
+    chart_theme = st.selectbox("Chart Theme", ["plotly_dark", "plotly", "seaborn"], index=0)
 
 # -----------------------
 # Data Loading
 # -----------------------
 with st.spinner("Loading data..."):
-    # Debug info
-    st.sidebar.markdown("---")
-    st.sidebar.markdown("### Debug Info")
-    st.sidebar.text(f"Data Directory: {DATA_DIR}")
-    st.sidebar.text(f"Directory exists: {os.path.exists(DATA_DIR)}")
-    
-    if os.path.exists(DATA_DIR):
-        files_in_dir = os.listdir(DATA_DIR)
-        st.sidebar.text(f"Files found: {len(files_in_dir)}")
-    
     data = {}
     missing_files = []
     loaded_files = []
@@ -435,11 +444,6 @@ with st.spinner("Loading data..."):
         else:
             data[key] = df
             loaded_files.append(f"{fname} ({len(df)} rows)")
-    
-    if loaded_files:
-        with st.sidebar.expander("Loaded Files"):
-            for f in loaded_files:
-                st.sidebar.text(f)
     
     if missing_files:
         st.error(f"Missing files: {', '.join(missing_files)}")
@@ -531,32 +535,66 @@ if page == "Analytics Overview":
     # Movie Search & Discovery
     # -----------------------
     st.sidebar.markdown("---")
-    st.sidebar.markdown("### 🔍 Movie Discovery")
+    st.sidebar.markdown("### 🔍 Discover")
     
-    search_term = st.sidebar.text_input("Search for a movie", placeholder="Type movie title...")
+    with st.sidebar.expander("🎬 Search Movies", expanded=True):
+        search_term = st.text_input("", placeholder="Type movie title...", label_visibility="collapsed", key="movie_search")
+        
+        if search_term:
+            search_results = movies[movies["title"].str.contains(search_term, case=False, na=False)]
+            if len(search_results) > 0:
+                st.markdown(f"**{len(search_results)} found:**")
+                for idx, row in search_results.head(5).iterrows():
+                    st.markdown(f"• {row['title']}")
+                if len(search_results) > 5:
+                    st.caption(f"... and {len(search_results) - 5} more")
+            else:
+                st.warning("No movies found")
     
-    if search_term:
-        search_results = movies[movies["title"].str.contains(search_term, case=False, na=False)]
-        if len(search_results) > 0:
-            st.sidebar.markdown(f"**Found {len(search_results)} movies:**")
-            for idx, row in search_results.head(5).iterrows():
-                st.sidebar.text(f"• {row['title']}")
-            if len(search_results) > 5:
-                st.sidebar.text(f"... and {len(search_results) - 5} more")
-        else:
-            st.sidebar.warning("No movies found")
-    
-    if st.sidebar.button("🎲 Random Movie"):
-        random_movie = movies.sample(1).iloc[0]
-        random_genres = random_movie["genre_list"]
-        if isinstance(random_genres, np.ndarray):
-            genre_str = ", ".join(random_genres.tolist())
-        elif isinstance(random_genres, (list, tuple)):
-            genre_str = ", ".join(random_genres)
-        else:
-            genre_str = str(random_genres)
-        st.sidebar.success(f"**{random_movie['title']}**")
-        st.sidebar.text(f"Genres: {genre_str}")
+    # Random Movie with optional genre preference
+    with st.sidebar.expander("🎲 Random Movie", expanded=False):
+        st.markdown("**Get a random movie suggestion**")
+        
+        # Optional genre preference
+        surprise_genres = st.multiselect(
+            "Prefer specific genres? (optional)",
+            all_genres,
+            default=[],
+            key="surprise_genre_filter"
+        )
+        
+        if st.button("🎲 Surprise Me!", use_container_width=True, key="surprise_btn"):
+            # Filter by genre if selected
+            if surprise_genres:
+                filtered_movies = movies[movies["genre_list"].apply(
+                    lambda x: any(g in surprise_genres for g in (
+                        x.tolist() if isinstance(x, np.ndarray) else 
+                        x if isinstance(x, (list, tuple)) else [x]
+                    )) if x is not None else False
+                )]
+                if len(filtered_movies) == 0:
+                    st.warning("No movies found with selected genres")
+                else:
+                    random_movie = filtered_movies.sample(1).iloc[0]
+            else:
+                random_movie = movies.sample(1).iloc[0]
+            
+            if 'random_movie' in locals():
+                random_genres = random_movie["genre_list"]
+                if isinstance(random_genres, np.ndarray):
+                    genre_str = ", ".join(random_genres.tolist())
+                elif isinstance(random_genres, (list, tuple)):
+                    genre_str = ", ".join(random_genres)
+                else:
+                    genre_str = str(random_genres)
+                
+                st.markdown(f"""
+                <div style='background: linear-gradient(135deg, rgba(102, 126, 234, 0.1) 0%, rgba(118, 75, 162, 0.1) 100%); 
+                            padding: 1rem; border-radius: 10px; border: 1px solid rgba(102, 126, 234, 0.3); margin-top: 0.5rem;'>
+                    <p style='color: #e0e7ff; font-weight: 600; margin: 0 0 0.5rem 0;'>{random_movie['title']}</p>
+                    <p style='color: #94a3b8; font-size: 0.85rem; margin: 0;'>{genre_str}</p>
+                </div>
+                """, unsafe_allow_html=True)
 
     # -----------------------
     # Section 1: User Behavior Insights
