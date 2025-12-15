@@ -402,7 +402,7 @@ st.sidebar.markdown("---")
 # Navigation Section
 st.sidebar.markdown("### 📊 Navigation")
 page = st.sidebar.radio(
-    "",
+    "Select Page",
     ["Analytics Overview", "Recommendation Models"],
     index=0,
     label_visibility="collapsed"
@@ -538,7 +538,7 @@ if page == "Analytics Overview":
     st.sidebar.markdown("### 🔍 Discover")
     
     with st.sidebar.expander("🎬 Search Movies", expanded=True):
-        search_term = st.text_input("", placeholder="Type movie title...", label_visibility="collapsed", key="movie_search")
+        search_term = st.text_input("Search", placeholder="Type movie title...", label_visibility="collapsed", key="movie_search")
         
         if search_term:
             search_results = movies[movies["title"].str.contains(search_term, case=False, na=False)]
