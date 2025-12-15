@@ -483,7 +483,11 @@ def safe_genre_iter(g):
     if isinstance(g, np.ndarray): return tuple(g.tolist())
     return (g,)
 
-all_genres = sorted({genre for sub in movies["genre_list"].dropna() for genre in safe_genre_iter(sub)})
+try:
+    all_genres = sorted({genre for sub in movies["genre_list"].dropna() for genre in safe_genre_iter(sub)})
+except Exception as e:
+    st.error(f"Error loading genres: {e}")
+    all_genres = []
 
 # -----------------------
 # PAGE ROUTING
