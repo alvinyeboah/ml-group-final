@@ -476,6 +476,16 @@ feature_importance = data.get("feature_importance")
 content_model = load_content_model()
 
 # -----------------------
+# Genre Helper (used in sidebar)
+# -----------------------
+def safe_genre_iter(g):
+    if isinstance(g, (list, tuple)): return tuple(g)
+    if isinstance(g, np.ndarray): return tuple(g.tolist())
+    return (g,)
+
+all_genres = sorted({genre for sub in movies["genre_list"].dropna() for genre in safe_genre_iter(sub)})
+
+# -----------------------
 # PAGE ROUTING
 # -----------------------
 
@@ -523,12 +533,6 @@ if page == "Analytics Overview":
     # -----------------------
     # Genre Filter
     # -----------------------
-    def safe_genre_iter(g):
-        if isinstance(g, (list, tuple)): return tuple(g)
-        if isinstance(g, np.ndarray): return tuple(g.tolist())
-        return (g,)
-
-    all_genres = sorted({genre for sub in movies["genre_list"].dropna() for genre in safe_genre_iter(sub)})
     genre_filter = st.sidebar.multiselect("Filter by Genre", all_genres, default=[])
     
     # -----------------------
