@@ -147,28 +147,44 @@ def load_chunked_parquet(base_filename, data_dir):
     """Load a parquet file that may be split into chunks"""
     import glob
     
-    # Check if chunked files exist
+    # Remove .parquet extension to get base name
     base_name = base_filename.replace('.parquet', '')
+    
+    # Look for chunked files
     chunk_pattern = os.path.join(data_dir, f"{base_name}_chunk_*.parquet")
     chunk_files = sorted(glob.glob(chunk_pattern))
     
     if chunk_files:
         # Load and combine all chunks
-        print(f"Loading {len(chunk_files)} chunks for {base_filename}")
-        chunks = [pd.read_parquet(f) for f in chunk_files]
+        chunks = []
+        for f in chunk_files:
+            chunks.append(pd.read_parquet(f))
         return pd.concat(chunks, ignore_index=True)
-    else:
-        # Try loading single file (non-chunked)
-        full_path = os.path.join(data_dir, base_filename)
-        if os.path.exists(full_path):
-            print(f"Loading single file: {base_filename}")
-            return pd.read_parquet(full_path)
-        
-        print(f"File not found: {base_filename}")
+    
+    # If no chunks, try loading the regular file
+    full_path = os.path.join(data_dir, base_filename)
+    if os.path.exists(full_path):
+        return pd.read_parquet(full_path)
+    
+    # File doesn't exist in any form
+    return None
+
+@st.cache_data
+def load_parquet_file(filename):
+    """Load parquet file (handles both single files and chunks)"""
+    if not filename:
         return None
+    
+    # Try loading (handles both chunked and non-chunked)
+    df = load_chunked_parquet(filename, DATA_DIR)
+    
+    if df is not None:
+        return df
+    
+    # If still None, file truly doesn't exist
+    return None
 
 
-        
 def get_chart_layout(title, height=500, theme="plotly_dark"):
     """Returns consistent chart layout configuration"""
     return dict(
@@ -181,14 +197,7 @@ def get_chart_layout(title, height=500, theme="plotly_dark"):
         margin=dict(l=50, r=50, t=80, b=50)
     )
 
-@st.cache_data
-def load_parquet_file(filename):
-    """Load parquet file (handles both single files and chunks)"""
-    try:
-        return load_chunked_parquet(filename, DATA_DIR)
-    except Exception as e:
-        st.warning(f"Error reading {filename}: {e}")
-        return None
+
 
 @st.cache_resource
 def load_content_model():
