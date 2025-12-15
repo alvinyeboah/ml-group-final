@@ -145,23 +145,30 @@ import glob
 
 def load_chunked_parquet(base_filename, data_dir):
     """Load a parquet file that may be split into chunks"""
+    import glob
     
     # Check if chunked files exist
     base_name = base_filename.replace('.parquet', '')
-    chunk_pattern = f"{base_name}_chunk_*.parquet"
-    chunk_files = sorted(glob.glob(os.path.join(data_dir, chunk_pattern)))
+    chunk_pattern = os.path.join(data_dir, f"{base_name}_chunk_*.parquet")
+    chunk_files = sorted(glob.glob(chunk_pattern))
     
     if chunk_files:
         # Load and combine all chunks
+        print(f"Loading {len(chunk_files)} chunks for {base_filename}")
         chunks = [pd.read_parquet(f) for f in chunk_files]
         return pd.concat(chunks, ignore_index=True)
     else:
-        # Try loading single file
+        # Try loading single file (non-chunked)
         full_path = os.path.join(data_dir, base_filename)
         if os.path.exists(full_path):
+            print(f"Loading single file: {base_filename}")
             return pd.read_parquet(full_path)
+        
+        print(f"File not found: {base_filename}")
         return None
 
+
+        
 def get_chart_layout(title, height=500, theme="plotly_dark"):
     """Returns consistent chart layout configuration"""
     return dict(
