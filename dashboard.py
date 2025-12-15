@@ -141,6 +141,27 @@ st.markdown("""
 # -----------------------
 # Helper Functions
 # -----------------------
+import glob
+
+def load_chunked_parquet(base_filename, data_dir):
+    """Load a parquet file that may be split into chunks"""
+    
+    # Check if chunked files exist
+    base_name = base_filename.replace('.parquet', '')
+    chunk_pattern = f"{base_name}_chunk_*.parquet"
+    chunk_files = sorted(glob.glob(os.path.join(data_dir, chunk_pattern)))
+    
+    if chunk_files:
+        # Load and combine all chunks
+        chunks = [pd.read_parquet(f) for f in chunk_files]
+        return pd.concat(chunks, ignore_index=True)
+    else:
+        # Try loading single file
+        full_path = os.path.join(data_dir, base_filename)
+        if os.path.exists(full_path):
+            return pd.read_parquet(full_path)
+        return None
+
 def get_chart_layout(title, height=500, theme="plotly_dark"):
     """Returns consistent chart layout configuration"""
     return dict(
@@ -154,13 +175,12 @@ def get_chart_layout(title, height=500, theme="plotly_dark"):
     )
 
 @st.cache_data
-def load_parquet_file(path: str):
-    if not os.path.exists(path):
-        return None
+def load_parquet_file(filename):
+    """Load parquet file (handles both single files and chunks)"""
     try:
-        return pd.read_parquet(path)
+        return load_chunked_parquet(filename, DATA_DIR)
     except Exception as e:
-        st.warning(f"Error reading {path}: {e}")
+        st.warning(f"Error reading {filename}: {e}")
         return None
 
 @st.cache_resource
