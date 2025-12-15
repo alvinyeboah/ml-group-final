@@ -12,6 +12,7 @@ import plotly.graph_objects as go
 import streamlit as st
 import joblib
 import glob
+from sklearn.metrics.pairwise import cosine_similarity
 
 # -----------------------
 # Configuration
@@ -62,46 +63,111 @@ st.set_page_config(
 
 st.markdown("""
 <style>
-    /* Main background */
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+    
+    /* Main background with animated gradient */
     .main {
-        background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+        background: linear-gradient(135deg, #0a0e27 0%, #1a1f3a 50%, #0f1419 100%);
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
     }
     
-    /* Headers */
+    /* Smooth page transitions */
+    .main > div {
+        animation: fadeIn 0.5s ease-in;
+    }
+    
+    @keyframes fadeIn {
+        from { opacity: 0; transform: translateY(10px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+    
+    /* Headers with modern styling */
     h1 {
-        color: #e94560;
-        font-family: 'Segoe UI', sans-serif;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+        font-family: 'Inter', sans-serif;
+        font-weight: 700;
+        font-size: 3rem;
+        letter-spacing: -1.5px;
+        padding: 30px 0 10px 0;
+        margin-bottom: 0;
+    }
+    
+    h2 {
+        color: #e0e7ff;
+        font-family: 'Inter', sans-serif;
         font-weight: 600;
+        font-size: 1.75rem;
+        margin-top: 50px;
+        margin-bottom: 20px;
+        padding-bottom: 12px;
+        border-bottom: 2px solid transparent;
+        border-image: linear-gradient(90deg, #667eea, #764ba2);
+        border-image-slice: 1;
         letter-spacing: -0.5px;
-        padding: 20px 0;
     }
     
-    h2, h3 {
-        color: #eaeaea;
-        font-family: 'Segoe UI', sans-serif;
-        font-weight: 500;
-        margin-top: 30px;
-        border-bottom: 2px solid #e94560;
-        padding-bottom: 10px;
-    }
-    
-    /* Sidebar */
-    .css-1d391kg, [data-testid="stSidebar"] {
-        background: linear-gradient(180deg, #0f3460 0%, #1a1a2e 100%);
-    }
-    
-    /* Metric containers */
-    [data-testid="stMetricValue"] {
-        font-size: 28px;
-        color: #e94560;
+    h3 {
+        color: #c7d2fe;
+        font-family: 'Inter', sans-serif;
         font-weight: 600;
+        font-size: 1.25rem;
+        margin-top: 30px;
+        margin-bottom: 15px;
+        letter-spacing: -0.3px;
+    }
+    
+    /* Sidebar with glassmorphism */
+    [data-testid="stSidebar"] {
+        background: linear-gradient(180deg, rgba(15, 23, 42, 0.95) 0%, rgba(10, 14, 39, 0.98) 100%);
+        backdrop-filter: blur(10px);
+        border-right: 1px solid rgba(102, 126, 234, 0.1);
+    }
+    
+    [data-testid="stSidebar"] > div:first-child {
+        padding-top: 2rem;
+    }
+    
+    /* Sidebar text styling */
+    [data-testid="stSidebar"] .element-container {
+        color: #e0e7ff;
+    }
+    
+    /* Metric containers with card design */
+    [data-testid="stMetric"] {
+        background: linear-gradient(135deg, rgba(102, 126, 234, 0.1) 0%, rgba(118, 75, 162, 0.1) 100%);
+        padding: 20px;
+        border-radius: 16px;
+        border: 1px solid rgba(102, 126, 234, 0.2);
+        backdrop-filter: blur(10px);
+        transition: all 0.3s ease;
+    }
+    
+    [data-testid="stMetric"]:hover {
+        transform: translateY(-4px);
+        box-shadow: 0 12px 40px rgba(102, 126, 234, 0.2);
+        border-color: rgba(102, 126, 234, 0.4);
+    }
+    
+    [data-testid="stMetricValue"] {
+        font-size: 2rem;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+        font-weight: 700;
+        font-family: 'Inter', sans-serif;
     }
     
     [data-testid="stMetricLabel"] {
-        color: #c5c5c5;
-        font-size: 13px;
+        color: #94a3b8;
+        font-size: 0.75rem;
         text-transform: uppercase;
-        letter-spacing: 0.5px;
+        letter-spacing: 1px;
+        font-weight: 600;
+        font-family: 'Inter', sans-serif;
     }
     
     /* Hide delta */
@@ -109,48 +175,130 @@ st.markdown("""
         display: none;
     }
     
-    /* Dataframe styling */
+    /* Dataframe styling with modern look */
     .dataframe {
-        background-color: #16213e !important;
-        color: #eaeaea !important;
+        background-color: rgba(15, 23, 42, 0.6) !important;
+        color: #e0e7ff !important;
+        border-radius: 12px !important;
+        overflow: hidden;
+        font-family: 'Inter', sans-serif;
     }
     
     .dataframe th {
-        background-color: #0f3460 !important;
-        color: #e94560 !important;
+        background: linear-gradient(135deg, rgba(102, 126, 234, 0.3) 0%, rgba(118, 75, 162, 0.3) 100%) !important;
+        color: #e0e7ff !important;
         font-weight: 600;
+        padding: 12px !important;
+        border: none !important;
+        font-family: 'Inter', sans-serif;
     }
     
-    /* Buttons */
+    .dataframe td {
+        border-color: rgba(102, 126, 234, 0.1) !important;
+        padding: 10px !important;
+    }
+    
+    /* Buttons with modern gradient */
     .stButton>button {
-        background: linear-gradient(90deg, #e94560 0%, #c03555 100%);
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
         color: white;
         border: none;
-        border-radius: 6px;
-        padding: 10px 24px;
-        font-weight: 500;
-        transition: all 0.3s;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-        font-size: 12px;
+        border-radius: 12px;
+        padding: 12px 32px;
+        font-weight: 600;
+        transition: all 0.3s ease;
+        text-transform: none;
+        letter-spacing: 0.3px;
+        font-size: 0.95rem;
+        font-family: 'Inter', sans-serif;
+        box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
     }
     
     .stButton>button:hover {
         transform: translateY(-2px);
-        box-shadow: 0 6px 20px rgba(233, 69, 96, 0.4);
+        box-shadow: 0 8px 25px rgba(102, 126, 234, 0.5);
+        background: linear-gradient(135deg, #764ba2 0%, #667eea 100%);
     }
     
-    /* Plotly charts */
+    .stButton>button:active {
+        transform: translateY(0);
+    }
+    
+    /* Selectbox and input styling */
+    .stSelectbox > div > div,
+    .stMultiSelect > div > div,
+    .stNumberInput > div > div > input {
+        background-color: rgba(15, 23, 42, 0.6) !important;
+        color: #e0e7ff !important;
+        border: 1px solid rgba(102, 126, 234, 0.2) !important;
+        border-radius: 10px !important;
+        font-family: 'Inter', sans-serif;
+    }
+    
+    /* Radio buttons */
+    .stRadio > div {
+        background-color: rgba(15, 23, 42, 0.4);
+        padding: 15px;
+        border-radius: 12px;
+        border: 1px solid rgba(102, 126, 234, 0.2);
+    }
+    
+    /* Slider styling */
+    .stSlider > div > div > div {
+        background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+    }
+    
+    /* Plotly charts with card wrapper */
     .js-plotly-plot {
-        border-radius: 8px;
+        border-radius: 16px;
+        background: rgba(15, 23, 42, 0.4);
+        padding: 10px;
+        border: 1px solid rgba(102, 126, 234, 0.1);
     }
     
     /* Section dividers */
     hr {
         border: none;
-        height: 1px;
-        background: linear-gradient(90deg, transparent, #e94560, transparent);
-        margin: 40px 0;
+        height: 2px;
+        background: linear-gradient(90deg, transparent, rgba(102, 126, 234, 0.5), rgba(118, 75, 162, 0.5), transparent);
+        margin: 50px 0;
+        border-radius: 2px;
+    }
+    
+    /* Info/Error boxes */
+    .stAlert {
+        border-radius: 12px;
+        border-left: 4px solid #667eea;
+        background: rgba(102, 126, 234, 0.1);
+        backdrop-filter: blur(10px);
+    }
+    
+    /* Expander styling */
+    .streamlit-expanderHeader {
+        background-color: rgba(15, 23, 42, 0.6);
+        border-radius: 10px;
+        border: 1px solid rgba(102, 126, 234, 0.2);
+        font-family: 'Inter', sans-serif;
+        font-weight: 500;
+    }
+    
+    /* Checkbox styling */
+    .stCheckbox {
+        color: #e0e7ff;
+        font-family: 'Inter', sans-serif;
+    }
+    
+    /* Markdown text */
+    .main p, .main li {
+        color: #cbd5e1;
+        font-family: 'Inter', sans-serif;
+        line-height: 1.6;
+    }
+    
+    /* Success/Info/Warning/Error messages */
+    .stSuccess, .stInfo, .stWarning, .stError {
+        border-radius: 12px;
+        font-family: 'Inter', sans-serif;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -206,12 +354,12 @@ def load_parquet_file(filename):
 def get_chart_layout(title, height=500, theme="plotly_dark"):
     """Returns consistent chart layout configuration"""
     return dict(
-        title=dict(text=title, font=dict(size=16, color="#e94560", family="Segoe UI")),
+        title=dict(text=title, font=dict(size=18, color="#c7d2fe", family="Inter")),
         height=height,
         template=theme,
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
-        font=dict(color="#eaeaea", family="Segoe UI"),
+        font=dict(color="#e0e7ff", family="Inter"),
         margin=dict(l=50, r=50, t=80, b=50)
     )
 
@@ -232,7 +380,7 @@ def load_content_model():
 # Header
 # -----------------------
 st.markdown("# MovieLens Analytics Dashboard")
-st.markdown("*Professional insights into viewer behavior, content performance, and recommendation patterns*")
+st.markdown("<p style='font-size: 1.1rem; color: #94a3b8; margin-top: -10px; font-weight: 400;'>Professional insights into viewer behavior, content performance, and recommendation patterns</p>", unsafe_allow_html=True)
 st.markdown("---")
 
 # -----------------------
@@ -378,6 +526,37 @@ if page == "Analytics Overview":
 
     all_genres = sorted({genre for sub in movies["genre_list"].dropna() for genre in safe_genre_iter(sub)})
     genre_filter = st.sidebar.multiselect("Filter by Genre", all_genres, default=[])
+    
+    # -----------------------
+    # Movie Search & Discovery
+    # -----------------------
+    st.sidebar.markdown("---")
+    st.sidebar.markdown("### 🔍 Movie Discovery")
+    
+    search_term = st.sidebar.text_input("Search for a movie", placeholder="Type movie title...")
+    
+    if search_term:
+        search_results = movies[movies["title"].str.contains(search_term, case=False, na=False)]
+        if len(search_results) > 0:
+            st.sidebar.markdown(f"**Found {len(search_results)} movies:**")
+            for idx, row in search_results.head(5).iterrows():
+                st.sidebar.text(f"• {row['title']}")
+            if len(search_results) > 5:
+                st.sidebar.text(f"... and {len(search_results) - 5} more")
+        else:
+            st.sidebar.warning("No movies found")
+    
+    if st.sidebar.button("🎲 Random Movie"):
+        random_movie = movies.sample(1).iloc[0]
+        random_genres = random_movie["genre_list"]
+        if isinstance(random_genres, np.ndarray):
+            genre_str = ", ".join(random_genres.tolist())
+        elif isinstance(random_genres, (list, tuple)):
+            genre_str = ", ".join(random_genres)
+        else:
+            genre_str = str(random_genres)
+        st.sidebar.success(f"**{random_movie['title']}**")
+        st.sidebar.text(f"Genres: {genre_str}")
 
     # -----------------------
     # Section 1: User Behavior Insights
@@ -393,7 +572,7 @@ if page == "Analytics Overview":
             fig = px.histogram(
                 user_pd, x="rater_type", color="rater_type",
                 category_orders={"rater_type":["harsh","neutral","generous"]},
-                color_discrete_map={"harsh":"#ff6b6b", "neutral":"#ffd93d", "generous":"#6bcf7f"}
+                color_discrete_map={"harsh":"#f87171", "neutral":"#a78bfa", "generous":"#34d399"}
             )
             fig.update_layout(**get_chart_layout("User Rating Patterns", theme=chart_theme, height=400))
             st.plotly_chart(fig, use_container_width=True)
@@ -404,7 +583,8 @@ if page == "Analytics Overview":
             activity_trend_pd,
             x="year",
             y="avg_ratings_per_user",
-            markers=True
+            markers=True,
+            color_discrete_sequence=["#667eea"]
         )
         fig.update_layout(**get_chart_layout("Average Ratings per User Over Time", theme=chart_theme, height=400))
         st.plotly_chart(fig, use_container_width=True)
@@ -417,14 +597,14 @@ if page == "Analytics Overview":
         x=rp["release_year"], 
         y=rp["num_ratings"], 
         name="Rating Volume", 
-        marker_color="#4ecdc4"
+        marker_color="#8b5cf6"
     ))
     fig.add_trace(go.Scatter(
         x=rp["release_year"], 
         y=rp["avg_rating"], 
         mode="lines+markers", 
         name="Average Rating", 
-        marker=dict(color="#e94560", size=8),
+        marker=dict(color="#667eea", size=8),
         yaxis="y2"
     ))
     fig.update_layout(
@@ -573,14 +753,35 @@ if page == "Analytics Overview":
 
     st.markdown("### Hidden Gems Discovery")
     st.markdown("*High-rated movies with low visibility*")
-
-    if show_raw_data:
-        st.dataframe(
-            hidden_gems[["title", "avg_rating", "num_ratings"]].head(20),
-            use_container_width=True
+    
+    if hidden_gems is not None and len(hidden_gems) > 0:
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Hidden Gems Found", f"{len(hidden_gems):,}")
+        with col2:
+            st.metric("Avg Rating", f"{hidden_gems['avg_rating'].mean():.2f}")
+        with col3:
+            st.metric("Avg Votes", f"{int(hidden_gems['num_ratings'].mean())}")
+        
+        # Show top hidden gems
+        num_gems = st.slider("Number of hidden gems to display", 5, 50, 20, key="hidden_gems_slider")
+        
+        display_gems = hidden_gems[["title", "avg_rating", "num_ratings"]].head(num_gems).copy()
+        display_gems.columns = ["Movie Title", "Avg Rating", "# Ratings"]
+        display_gems["Avg Rating"] = display_gems["Avg Rating"].round(2)
+        
+        st.dataframe(display_gems, use_container_width=True, height=400)
+        
+        # Download button
+        csv = display_gems.to_csv(index=False).encode('utf-8')
+        st.download_button(
+            label="📥 Download Hidden Gems",
+            data=csv,
+            file_name="hidden_gems.csv",
+            mime="text/csv",
         )
     else:
-        st.markdown(f"**{len(hidden_gems)} hidden gems identified** (rating ≥ 4.5, ratings ≤ 100)")
+        st.warning("No hidden gems data available")
 
 elif page == "Recommendation Models":
     # -----------------------
@@ -602,37 +803,95 @@ elif page == "Recommendation Models":
         st.markdown("### Weighted Popularity Model")
         st.markdown("*IMDb-style weighted score based on ratings volume and average*")
         
-        # Show top N movies
-        n_recommendations = st.slider("Number of recommendations", 5, 50, 20)
-        
-        top_movies = weighted_popularity.head(n_recommendations)
-        
-        col1, col2 = st.columns([2, 1])
-        
-        with col1:
-            st.markdown("#### Top Recommended Movies")
-            display_df = top_movies[["title", "score", "R", "v"]].copy()
-            display_df.columns = ["Movie Title", "Weighted Score", "Avg Rating", "# Ratings"]
-            display_df["Weighted Score"] = display_df["Weighted Score"].round(3)
-            display_df["Avg Rating"] = display_df["Avg Rating"].round(2)
-            st.dataframe(display_df, use_container_width=True, height=600)
-        
-        with col2:
-            st.markdown("#### Model Formula")
-            st.latex(r"""
-            Score = \frac{v}{v+m} \times R + \frac{m}{v+m} \times C
-            """)
-            st.markdown("""
-            Where:
-            - **v** = number of ratings
-            - **R** = average rating
-            - **m** = minimum votes threshold
-            - **C** = global mean rating
-            """)
+        if weighted_popularity is None:
+            st.error("Weighted popularity data not found. Please ensure weighted_popularity.parquet is in the data directory.")
+            st.info("This file should contain pre-computed weighted scores for all movies.")
+        else:
+            # Merge with movies to get genres
+            wp_with_genres = weighted_popularity.merge(movies[["movieId", "genre_list"]], on="movieId", how="left")
             
-            st.markdown("#### Model Stats")
-            st.metric("Total Movies Ranked", f"{len(weighted_popularity):,}")
-            st.metric("Avg Score", f"{weighted_popularity['score'].mean():.3f}")
+            # Filters
+            col1, col2, col3 = st.columns([2, 1, 1])
+            
+            with col1:
+                # Genre filter - handle numpy arrays
+                all_genres_wp = set()
+                for genres in wp_with_genres["genre_list"].dropna():
+                    if isinstance(genres, np.ndarray):
+                        all_genres_wp.update(genres.tolist())
+                    elif isinstance(genres, (list, tuple)):
+                        all_genres_wp.update(genres)
+                    else:
+                        all_genres_wp.add(genres)
+                all_genres_wp = sorted(all_genres_wp)
+                selected_genres = st.multiselect("Filter by Genre", all_genres_wp, default=[])
+            
+            with col2:
+                min_votes = st.number_input("Min Votes", min_value=0, value=100, step=50)
+            
+            with col3:
+                n_recommendations = st.slider("Top N Movies", 5, 100, 20)
+            
+            # Apply filters
+            filtered_wp = wp_with_genres.copy()
+            
+            if selected_genres:
+                def check_genre_match(x):
+                    if x is None:
+                        return False
+                    if isinstance(x, np.ndarray):
+                        return any(g in selected_genres for g in x.tolist())
+                    elif isinstance(x, (list, tuple)):
+                        return any(g in selected_genres for g in x)
+                    else:
+                        return x in selected_genres
+                
+                filtered_wp = filtered_wp[filtered_wp["genre_list"].apply(check_genre_match)]
+            
+            filtered_wp = filtered_wp[filtered_wp["v"] >= min_votes]
+            
+            # Get top N
+            top_movies = filtered_wp.head(n_recommendations)
+            
+            # Show count
+            st.markdown(f"**Showing {len(top_movies)} of {len(filtered_wp):,} movies** (Total in dataset: {len(weighted_popularity):,})")
+            
+            col1, col2 = st.columns([2, 1])
+            
+            with col1:
+                st.markdown("#### Top Recommended Movies")
+                display_df = top_movies[["title", "score", "R", "v"]].copy()
+                display_df.columns = ["Movie Title", "Weighted Score", "Avg Rating", "# Ratings"]
+                display_df["Weighted Score"] = display_df["Weighted Score"].round(3)
+                display_df["Avg Rating"] = display_df["Avg Rating"].round(2)
+                st.dataframe(display_df, use_container_width=True, height=600)
+                
+                # Download button
+                csv = display_df.to_csv(index=False).encode('utf-8')
+                st.download_button(
+                    label="📥 Download Recommendations",
+                    data=csv,
+                    file_name="top_movies_weighted_popularity.csv",
+                    mime="text/csv",
+                )
+            
+            with col2:
+                st.markdown("#### Model Formula")
+                st.latex(r"""
+                Score = \frac{v}{v+m} \times R + \frac{m}{v+m} \times C
+                """)
+                st.markdown("""
+                Where:
+                - **v** = number of ratings
+                - **R** = average rating
+                - **m** = minimum votes threshold
+                - **C** = global mean rating
+                """)
+                
+                st.markdown("#### Model Stats")
+                st.metric("Movies Shown", f"{len(top_movies)}")
+                st.metric("Avg Score", f"{top_movies['score'].mean():.3f}")
+                st.metric("Avg Votes", f"{int(top_movies['v'].mean()):,}")
             
     else:  # Content-Based Filtering
         st.markdown("### Content-Based Filtering Model")
@@ -640,6 +899,9 @@ elif page == "Recommendation Models":
         
         if content_model is None:
             st.error("Content-based model not found. Please ensure content_based_model.pkl is in the data directory.")
+        elif content_model_metrics is None or feature_importance is None:
+            st.error("Model metrics or feature importance data not found.")
+            st.info("Please ensure content_model_metrics.parquet and feature_importance.parquet are in the data directory.")
         else:
             col1, col2 = st.columns(2)
             
@@ -670,38 +932,121 @@ elif page == "Recommendation Models":
             # Movie recommendation interface
             st.markdown("#### Get Recommendations for a Movie")
             
-            # Movie selector
-            movie_titles = movies["title"].tolist()
-            selected_movie_title = st.selectbox("Select a movie", movie_titles)
-            
-            if st.button("Get Similar Movies"):
-                # Find selected movie ID
-                selected_movie_id = movies[movies["title"] == selected_movie_title]["movieId"].values[0]
+            if movie_features is None or movies is None:
+                st.error("Movie features or movies data not found.")
+            else:
+                col1, col2 = st.columns([3, 1])
                 
-                # Get movie features
-                if selected_movie_id in movie_features.index:
-                    selected_features = movie_features.loc[selected_movie_id].values.reshape(1, -1)
+                with col1:
+                    # Movie selector with search
+                    movie_titles = movies["title"].tolist()
+                    selected_movie_title = st.selectbox("Select a movie", movie_titles, 
+                                                        help="Start typing to search for a movie")
+                
+                with col2:
+                    num_recommendations = st.number_input("Number of recommendations", min_value=5, max_value=50, value=10)
+                
+                if st.button("🎬 Get Similar Movies", use_container_width=True):
+                    # Find selected movie ID
+                    selected_movie_id = movies[movies["title"] == selected_movie_title]["movieId"].values[0]
+                    selected_movie_info = movies[movies["movieId"] == selected_movie_id].iloc[0]
                     
-                    # Predict rating
-                    predicted_rating = content_model.predict(selected_features)[0]
-                    
-                    st.success(f"Predicted Rating for this movie: **{predicted_rating:.2f}** / 5.0")
-                    
-                    # Find similar movies (simple cosine similarity on features)
-                    from sklearn.metrics.pairwise import cosine_similarity
-                    
-                    similarities = cosine_similarity(selected_features, movie_features.values)[0]
-                    similar_indices = similarities.argsort()[-11:-1][::-1]  # Top 10 similar (excluding self)
-                    
-                    similar_movies = movie_features.iloc[similar_indices].index.tolist()
-                    similar_titles = movies[movies["movieId"].isin(similar_movies)][["movieId", "title"]]
-                    similar_titles["similarity"] = [similarities[idx] for idx in similar_indices]
-                    similar_titles = similar_titles.sort_values("similarity", ascending=False)
-                    
-                    st.markdown("#### Top 10 Similar Movies")
-                    display_similar = similar_titles[["title", "similarity"]].copy()
-                    display_similar.columns = ["Movie Title", "Similarity Score"]
-                    display_similar["Similarity Score"] = display_similar["Similarity Score"].round(3)
-                    st.dataframe(display_similar, use_container_width=True)
-                else:
-                    st.error("Movie features not found for this movie.")
+                    # Get movie features
+                    if selected_movie_id in movie_features.index:
+                        selected_features = movie_features.loc[selected_movie_id].values.reshape(1, -1)
+                        
+                        # Predict rating
+                        predicted_rating = content_model.predict(selected_features)[0]
+                        
+                        # Show selected movie info
+                        st.markdown("---")
+                        col1, col2 = st.columns([2, 1])
+                        
+                        with col1:
+                            st.markdown(f"### 🎥 {selected_movie_title}")
+                            genres = selected_movie_info["genre_list"]
+                            if isinstance(genres, np.ndarray):
+                                genre_str = ", ".join(genres.tolist())
+                            elif isinstance(genres, (list, tuple)):
+                                genre_str = ", ".join(genres)
+                            else:
+                                genre_str = str(genres)
+                            st.markdown(f"**Genres:** {genre_str}")
+                        
+                        with col2:
+                            st.metric("Predicted Rating", f"{predicted_rating:.2f} / 5.0")
+                        
+                        st.markdown("---")
+                        
+                        # Find similar movies (cosine similarity on features)
+                        similarities = cosine_similarity(selected_features, movie_features.values)[0]
+                        similar_indices = similarities.argsort()[-(num_recommendations+1):-1][::-1]  # Top N similar (excluding self)
+                        
+                        similar_movies = movie_features.iloc[similar_indices].index.tolist()
+                        similar_titles = movies[movies["movieId"].isin(similar_movies)][["movieId", "title", "genre_list"]].copy()
+                        similar_titles["similarity"] = [similarities[idx] for idx in similar_indices]
+                        similar_titles = similar_titles.sort_values("similarity", ascending=False)
+                        
+                        # Calculate genre overlap
+                        if isinstance(genres, np.ndarray):
+                            selected_genres = set(genres.tolist())
+                        elif isinstance(genres, (list, tuple)):
+                            selected_genres = set(genres)
+                        else:
+                            selected_genres = {genres}
+                        
+                        def calc_genre_overlap(row_genres):
+                            # Check for None or empty first
+                            if row_genres is None:
+                                return 0
+                            # Handle numpy arrays
+                            if isinstance(row_genres, np.ndarray):
+                                if len(row_genres) == 0:
+                                    return 0
+                                row_genre_set = set(row_genres.tolist())
+                            elif isinstance(row_genres, (list, tuple)):
+                                if len(row_genres) == 0:
+                                    return 0
+                                row_genre_set = set(row_genres)
+                            else:
+                                # For scalar values, check if it's NaN
+                                try:
+                                    if pd.isna(row_genres):
+                                        return 0
+                                except (TypeError, ValueError):
+                                    pass
+                                row_genre_set = {row_genres}
+                            overlap = len(selected_genres & row_genre_set)
+                            return overlap
+                        
+                        similar_titles["genre_overlap"] = similar_titles["genre_list"].apply(calc_genre_overlap)
+                        
+                        st.markdown(f"#### 🎯 Top {len(similar_titles)} Similar Movies")
+                        
+                        # Format display
+                        display_similar = similar_titles[["title", "similarity", "genre_overlap", "genre_list"]].copy()
+                        display_similar["genre_list"] = display_similar["genre_list"].apply(
+                            lambda x: ", ".join(x) if isinstance(x, (list, tuple)) else str(x)
+                        )
+                        display_similar.columns = ["Movie Title", "Similarity Score", "Shared Genres", "Genres"]
+                        display_similar["Similarity Score"] = display_similar["Similarity Score"].round(3)
+                        
+                        st.dataframe(display_similar, use_container_width=True, height=400)
+                        
+                        # Download button
+                        csv = display_similar.to_csv(index=False).encode('utf-8')
+                        st.download_button(
+                            label="📥 Download Similar Movies",
+                            data=csv,
+                            file_name=f"similar_to_{selected_movie_title.replace(' ', '_')[:30]}.csv",
+                            mime="text/csv",
+                        )
+                        
+                        # Show explanation
+                        st.info(f"""
+                        **How similarity works:** Movies are compared based on their features (genres, tags, metadata). 
+                        A score of 1.0 means identical features, while 0.0 means completely different. 
+                        The selected movie shares {int(similar_titles['genre_overlap'].mean())} genres on average with these recommendations.
+                        """)
+                    else:
+                        st.error("Movie features not found for this movie.")
